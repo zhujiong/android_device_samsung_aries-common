@@ -24,9 +24,7 @@ import edify_generator
 class EdifyGenerator(edify_generator.EdifyGenerator):
     def AssertDevice(self, device):
       edify_generator.EdifyGenerator.AssertDevice(self, device)
-
-      self.script.append('ui_print("Checking state of BML/MTD...");')
-
+      self.script.append('show_progress(0.15, 5);');
       self.script.append(
             ('package_extract_file("modem.bin", "/tmp/modem.bin");\n'
              'set_perm(0, 0, 0777, "/tmp/modem.bin");'))
@@ -62,6 +60,9 @@ class EdifyGenerator(edify_generator.EdifyGenerator):
       """Write the given package file into the given partition."""
 
       args = {'partition': partition, 'partition_start_block': partition_start_block, 'reservoirpartition': reservoirpartition, 'reservoir_start_block': reservoir_start_block, 'image': image}
+
+      self.script.append(
+            ('assert(run_program("/tmp/erase_image", "%(partition)s"));') % args)
 
       self.script.append(
             ('assert(package_extract_file("%(image)s", "/tmp/%(partition)s.img"),\n'

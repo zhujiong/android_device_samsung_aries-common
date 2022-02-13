@@ -2,6 +2,7 @@
 **
 ** Copyright 2008, The Android Open Source Project
 ** Copyright 2010, Samsung Electronics Co. LTD
+** Copyright 2011, The CyanogenMod Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -33,16 +34,18 @@
 #include <sys/poll.h>
 #include <sys/stat.h>
 
+#include <utils/RefBase.h>
 #include <linux/videodev2.h>
 #include <videodev2_samsung.h>
 
-#include "JpegEncoder.h"
+#include <utils/String8.h>
 
-#include <camera/CameraHardwareInterface.h>
+#include "JpegEncoder.h"
 
 namespace android {
 
-#define ENABLE_ESD_PREVIEW_CHECK
+// Not supported by CE147
+// #define ENABLE_ESD_PREVIEW_CHECK
 
 #if defined(LOG_NDEBUG) && LOG_NDEBUG == 0
 #define LOG_CAMERA LOGD
@@ -69,39 +72,74 @@ namespace android {
 #define LOG_TIME(n)
 #endif
 
-#define MAX_BACK_CAMERA_PREVIEW_WIDTH       720
-#define MAX_BACK_CAMERA_PREVIEW_HEIGHT      480
-#define MAX_BACK_CAMERA_SNAPSHOT_WIDTH      2560
-#define MAX_BACK_CAMERA_SNAPSHOT_HEIGHT     1920
-#define BACK_CAMERA_POSTVIEW_WIDTH          640
-#define BACK_CAMERA_POSTVIEW_WIDE_WIDTH     800
-#define BACK_CAMERA_POSTVIEW_HEIGHT         480
-#define BACK_CAMERA_POSTVIEW_BPP            16
-#define BACK_CAMERA_THUMBNAIL_WIDTH         320
-#define BACK_CAMERA_THUMBNAIL_HEIGHT        240
-#define BACK_CAMERA_THUMBNAIL_BPP           16
+#define JOIN(x, y) JOIN_AGAIN(x, y)
+#define JOIN_AGAIN(x, y) x ## y
 
-#define BACK_CAMERA_FOCAL_LENGTH            379 /* 3.79mm */
+#define FRONT_CAM VGA
+#define BACK_CAM S5K4ECGX
 
-#define MAX_FRONT_CAMERA_PREVIEW_WIDTH      640
-#define MAX_FRONT_CAMERA_PREVIEW_HEIGHT     480
-#define MAX_FRONT_CAMERA_SNAPSHOT_WIDTH     640
-#define MAX_FRONT_CAMERA_SNAPSHOT_HEIGHT    480
+#if !defined (FRONT_CAM) || !defined(BACK_CAM)
+#error "Please define the Camera module"
+#endif
 
-#define FRONT_CAMERA_THUMBNAIL_WIDTH        160
-#define FRONT_CAMERA_THUMBNAIL_HEIGHT       120
-#define FRONT_CAMERA_THUMBNAIL_BPP          16
-#define FRONT_CAMERA_FOCAL_LENGTH           130 /* 1.3mm */
+#define S5K4ECGX_PREVIEW_WIDTH            1280
+#define S5K4ECGX_PREVIEW_HEIGHT           720
+#define S5K4ECGX_SNAPSHOT_WIDTH           2560
+#define S5K4ECGX_SNAPSHOT_HEIGHT          1920
+
+#define S5K4ECGX_POSTVIEW_WIDTH           640
+#define S5K4ECGX_POSTVIEW_WIDE_WIDTH      800
+#define S5K4ECGX_POSTVIEW_HEIGHT          480
+#define S5K4ECGX_POSTVIEW_BPP             16
+
+#define S5K4ECGX_THUMBNAIL_WIDTH          320
+#define S5K4ECGX_THUMBNAIL_HEIGHT         240
+#define S5K4ECGX_THUMBNAIL_BPP            16
+
+/* focal length of 3.43mm */
+#define S5K4ECGX_FOCAL_LENGTH             343
+
+#define VGA_PREVIEW_WIDTH               640
+#define VGA_PREVIEW_HEIGHT              480
+#define VGA_SNAPSHOT_WIDTH              640
+#define VGA_SNAPSHOT_HEIGHT             480
+
+#define VGA_THUMBNAIL_WIDTH             160
+#define VGA_THUMBNAIL_HEIGHT            120
+#define VGA_THUMBNAIL_BPP               16
+
+/* focal length of 0.9mm */
+#define VGA_FOCAL_LENGTH                90
+
+#define MAX_BACK_CAMERA_PREVIEW_WIDTH       JOIN(BACK_CAM,_PREVIEW_WIDTH)
+#define MAX_BACK_CAMERA_PREVIEW_HEIGHT      JOIN(BACK_CAM,_PREVIEW_HEIGHT)
+#define MAX_BACK_CAMERA_SNAPSHOT_WIDTH      JOIN(BACK_CAM,_SNAPSHOT_WIDTH)
+#define MAX_BACK_CAMERA_SNAPSHOT_HEIGHT     JOIN(BACK_CAM,_SNAPSHOT_HEIGHT)
+#define BACK_CAMERA_POSTVIEW_WIDTH          JOIN(BACK_CAM,_POSTVIEW_WIDTH)
+#define BACK_CAMERA_POSTVIEW_WIDE_WIDTH     JOIN(BACK_CAM,_POSTVIEW_WIDE_WIDTH)
+#define BACK_CAMERA_POSTVIEW_HEIGHT         JOIN(BACK_CAM,_POSTVIEW_HEIGHT)
+#define BACK_CAMERA_POSTVIEW_BPP            JOIN(BACK_CAM,_POSTVIEW_BPP)
+#define BACK_CAMERA_THUMBNAIL_WIDTH         JOIN(BACK_CAM,_THUMBNAIL_WIDTH)
+#define BACK_CAMERA_THUMBNAIL_HEIGHT        JOIN(BACK_CAM,_THUMBNAIL_HEIGHT)
+#define BACK_CAMERA_THUMBNAIL_BPP           JOIN(BACK_CAM,_THUMBNAIL_BPP)
+
+#define BACK_CAMERA_FOCAL_LENGTH            JOIN(BACK_CAM,_FOCAL_LENGTH)
+
+#define MAX_FRONT_CAMERA_PREVIEW_WIDTH      JOIN(FRONT_CAM,_PREVIEW_WIDTH)
+#define MAX_FRONT_CAMERA_PREVIEW_HEIGHT     JOIN(FRONT_CAM,_PREVIEW_HEIGHT)
+#define MAX_FRONT_CAMERA_SNAPSHOT_WIDTH     JOIN(FRONT_CAM,_SNAPSHOT_WIDTH)
+#define MAX_FRONT_CAMERA_SNAPSHOT_HEIGHT    JOIN(FRONT_CAM,_SNAPSHOT_HEIGHT)
+
+#define FRONT_CAMERA_THUMBNAIL_WIDTH        JOIN(FRONT_CAM,_THUMBNAIL_WIDTH)
+#define FRONT_CAMERA_THUMBNAIL_HEIGHT       JOIN(FRONT_CAM,_THUMBNAIL_HEIGHT)
+#define FRONT_CAMERA_THUMBNAIL_BPP          JOIN(FRONT_CAM,_THUMBNAIL_BPP)
+#define FRONT_CAMERA_FOCAL_LENGTH           JOIN(FRONT_CAM,_FOCAL_LENGTH)
 
 #define DEFAULT_JPEG_THUMBNAIL_WIDTH        256
 #define DEFAULT_JPEG_THUMBNAIL_HEIGHT       192
 
-#ifndef CAMERA_DEV_NAME
 #define CAMERA_DEV_NAME   "/dev/video0"
-#endif
-#ifndef CAMERA_DEV_NAME2
 #define CAMERA_DEV_NAME2  "/dev/video2"
-#endif
 
 #define CAMERA_DEV_NAME_TEMP "/data/videotmp_000"
 #define CAMERA_DEV_NAME2_TEMP "/data/videotemp_002"
@@ -109,7 +147,12 @@ namespace android {
 
 #define BPP             2
 #define MIN(x, y)       (((x) < (y)) ? (x) : (y))
-#define MAX_BUFFERS     11
+#define MAX_BUFFERS     8
+
+#define FIRST_AF_SEARCH_COUNT 600
+#define AF_PROGRESS 0x05
+#define AF_SUCCESS 0x02
+#define AF_DELAY 10000
 
 /*
  * V 4 L 2   F I M C   E X T E N S I O N S
@@ -165,8 +208,7 @@ struct camsensor_date_info {
     unsigned int date;
 };
 
-
-class SecCamera {
+class SecCamera : public virtual RefBase {
 public:
 
     enum CAMERA_ID {
@@ -237,16 +279,14 @@ public:
     } gpsInfoAltitude;
 
     SecCamera();
-    ~SecCamera();
+    virtual ~SecCamera();
 
     static SecCamera* createInstance(void)
     {
         static SecCamera singleton;
         return &singleton;
     }
-    status_t dump(int fd, const Vector<String16>& args);
-
-    int             flagCreate(void) const;
+    status_t dump(int fd);
 
     int             getCameraId(void);
 
@@ -454,9 +494,6 @@ private:
 
     int             m_cam_fd;
 
-    int             m_cam_fd_temp;
-    int             m_cam_fd2_temp;
-
     int             m_cam_fd2;
     struct pollfd   m_events_c2;
     int             m_flag_record_start;
@@ -486,9 +523,10 @@ private:
     int             m_object_tracking_start_stop;
     int             m_recording_width;
     int             m_recording_height;
-    long            m_gps_latitude;
-    long            m_gps_longitude;
-    long            m_gps_altitude;
+    bool            m_gps_enabled;
+    long            m_gps_latitude;  /* degrees * 1e7 */
+    long            m_gps_longitude; /* degrees * 1e7 */
+    long            m_gps_altitude;  /* metres * 100 */
     long            m_gps_timestamp;
     int             m_vtmode;
     int             m_sensor_mode; /*Camcorder fix fps */
